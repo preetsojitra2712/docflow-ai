@@ -1,0 +1,17 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  filename  String
+  mimeType  String?
+  bucket    String
+  objectKey String   @unique
+  size      Int?
+  createdAt DateTime @default(now())
+}
