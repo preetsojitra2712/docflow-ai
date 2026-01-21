@@ -1,182 +1,210 @@
-# DocFlow AI
+DocFlow AI
 
-Hello 👋  
-I am currently working on this project.
+DocFlow AI is an early-stage backend system for document upload, storage, and secure retrieval.
+This project focuses on building a production-quality backend foundation before adding advanced features such as search, background processing, and AI-powered document understanding.
 
-DocFlow AI is an **early-stage, startup-level backend system** designed for document ingestion, storage, and retrieval.  
-This repository represents my **initial commits**, where the core backend architecture and infrastructure are being built from scratch with production-readiness in mind.
+The repository reflects active development and incremental progress toward a scalable document platform.
 
-The long-term goal of DocFlow AI is to become a scalable document platform that can later support authentication, background processing, search, and AI-powered document understanding.
+Project Status
 
----
+🚧 Actively under development
 
-## Project Status
+This repository currently represents the backend core of the system.
+The goal at this stage is correctness, security, and clean architecture rather than a finished user product.
 
-🚧 **Actively under development**
+What is implemented so far
 
-This repository currently focuses on building a **strong backend foundation** rather than a finished product.
+The system currently supports:
 
-What is implemented so far:
+User login with secure session handling
 
-- End-to-end file upload pipeline
-- Object storage using MinIO (S3-compatible)
-- Metadata persistence in PostgreSQL
-- Prisma ORM with migrations
-- Secure, time-limited download URLs
-- Dockerized local infrastructure
-- Monorepo setup using pnpm workspaces
+Uploading documents through an API
 
-These initial commits establish the base architecture on top of which future features will be added.
+Storing files in object storage (S3-compatible)
 
----
+Storing document metadata in a relational database
 
-## Tech Stack
+Listing documents owned by a user
 
-### Backend
-- Node.js (Fastify)
-- TypeScript
-- Prisma ORM
+Downloading documents via secure, time-limited URLs
 
-### Database
-- PostgreSQL
+Deleting documents
 
-### Object Storage
-- MinIO (S3-compatible)
+Admin-only audit logs showing system activity
 
-### Infrastructure & Tooling
-- Docker & Docker Compose
-- pnpm workspaces (monorepo)
-- WSL (Ubuntu) development environment
-- curl / PowerShell for API testing
+Fully dockerized local development setup
 
----
+All critical actions such as login, upload, download, and delete are recorded for traceability.
 
-## High-Level Architecture
+Tech Stack
+Backend
 
-1. Clients upload documents via a Fastify API.
-2. Files are stored in MinIO object storage.
-3. Document metadata is stored in PostgreSQL.
-4. Documents can be listed and retrieved via API.
-5. Secure, presigned URLs are generated for downloads.
-6. All services run locally using Docker for development.
+Node.js
 
-This mirrors real-world production architectures used in backend-heavy systems.
+Fastify
 
----
+TypeScript
 
-## Monorepo Structure
+Database
 
+PostgreSQL
+
+Prisma ORM with migrations
+
+Object Storage
+
+MinIO (S3-compatible)
+
+Infrastructure and Tooling
+
+Docker and Docker Compose
+
+pnpm workspaces (monorepo)
+
+WSL (Ubuntu) for development
+
+curl and PowerShell for API testing
+
+High-Level Architecture
+
+Clients authenticate and interact with a Fastify API.
+
+Uploaded files are stored in MinIO object storage.
+
+Metadata is stored in PostgreSQL using Prisma.
+
+Files are downloaded using secure presigned URLs.
+
+All services run locally via Docker in development.
+
+This mirrors common production architectures used in real backend systems.
+
+Monorepo Structure
 docflow-ai/
 ├── apps/
-│ └── api/ # Fastify API service
+│   └── api/                # Fastify API service
 ├── packages/
-│ └── db/ # Prisma schema, migrations, DB utilities
-├── infra/ # Infrastructure-related files
-├── scripts/ # Local utility scripts
-├── docker-compose.yml # Postgres + MinIO
+│   └── db/                 # Prisma schema, migrations, DB utilities
+├── infra/                  # Infrastructure related files
+├── scripts/                # Local utility scripts
+├── docker-compose.yml      # Postgres and MinIO
 ├── prisma.config.ts
 ├── pnpm-workspace.yaml
 └── README.md
 
-yaml
-Copy code
+Local Development Setup
+Requirements
 
----
+Node.js 20+
 
-## Local Development Setup
+pnpm
 
-### Requirements
-- Node.js 20+
-- pnpm
-- Docker
+Docker
 
-### Setup Steps
-
-```bash
+Setup
 pnpm install
 cp .env.example .env
 docker compose up -d
 pnpm --filter @docflow/db exec prisma migrate dev
 pnpm --filter @docflow/api dev
+
+
 The API will be available at:
 
-arduino
-Copy code
 http://localhost:4000
-Environment Variables
-Example configuration (see .env.example):
 
-ini
-Copy code
+Environment Variables
+
+Example .env configuration:
+
 DATABASE_URL=postgresql://docflow:docflow@localhost:5432/docflow
+
 MINIO_ENDPOINT=localhost
 MINIO_PORT=9000
 MINIO_ACCESS_KEY=minio
 MINIO_SECRET_KEY=minio12345
 MINIO_BUCKET=docflow
 MINIO_USE_SSL=false
+
+JWT_SECRET=dev-secret-change-me
+COOKIE_SECRET=dev-cookie-secret-change-me
+
 API_PORT=4000
+
 API Endpoints
 Health Check
-bash
-Copy code
 GET /health
+
 Upload Document
-bash
-Copy code
 POST /upload
+
+
 Multipart form field name:
 
-csharp
-Copy code
 file
+
 List Documents
-bash
-Copy code
 GET /documents
+
+
+Returns only documents owned by the authenticated user.
+
 Get Document Metadata
-bash
-Copy code
 GET /documents/:id
+
 Download Document
-bash
-Copy code
 GET /documents/:id/download
+
+
 Returns a presigned MinIO URL valid for a limited time.
 
+Admin Audit Logs
+GET /admin/audit
+
+
+Admin-only endpoint that returns recent system activity such as logins and document operations.
+
 Example Upload (PowerShell)
-powershell
-Copy code
-curl.exe -F "file=@C:\path\to\file.pdf" http://localhost:4000/upload
+curl.exe -X POST "http://localhost:4000/upload" `
+  -H "Authorization: Bearer <ACCESS_TOKEN>" `
+  -F "file=@C:\path\to\file.pdf"
+
 Design Philosophy
-Start with a solid backend core
+
+Start with a strong backend core
 
 Use production-grade tools from day one
 
 Keep infrastructure reproducible locally
 
-Build incrementally with clear boundaries
+Build incrementally with clear ownership boundaries
 
 Optimize for scalability and extensibility
 
 Planned Next Steps
-Delete / cleanup endpoints
 
-Authentication and authorization (JWT)
+Password reset and email verification
 
-Background processing (e.g. Temporal / queues)
+Refresh token reuse detection
+
+Per-user rate limiting
+
+Background processing (queues or workers)
 
 Document text extraction and indexing
 
-Semantic search and AI-powered workflows
+Search and AI-powered workflows
 
 Frontend UI for uploads and browsing
 
+Production deployment configuration
+
 Disclaimer
-This repository reflects early-stage development and initial commits.
+
+This repository reflects early-stage development.
 Breaking changes are expected as the system evolves.
 
 Author
-Preet Sojitra
-Backend / Systems / AI-focused Engineer
 
+Preet Sojitra
+Backend, Systems, and AI-focused Engineer
