@@ -19,7 +19,7 @@ export const minio = new MinioClient({
   port,
   useSSL,
   accessKey,
-  secretKey
+  secretKey,
 });
 
 export const MINIO_BUCKET = bucket;
@@ -29,4 +29,30 @@ export async function ensureBucket() {
   if (!exists) {
     await minio.makeBucket(MINIO_BUCKET);
   }
+}
+
+// Upload object bytes to MinIO under the given key
+export async function putObject(
+  key: string,
+  data: Buffer,
+  contentType?: string
+) {
+  await ensureBucket();
+  const meta = contentType ? { "Content-Type": contentType } : undefined;
+  await minio.putObject(MINIO_BUCKET, key, data, data.length, meta as any);
+}
+
+// Delete object by key
+export async function removeObject(key: string) {
+  await ensureBucket();
+  await minio.removeObject(MINIO_BUCKET, key);
+}
+
+// Presigned GET URL for download
+export async function presignGetObject(
+  key: string,
+  expiresSeconds = 60 * 10
+) {
+  await ensureBucket();
+  return minio.presignedGetObject(MINIO_BUCKET, key, expiresSeconds);
 }

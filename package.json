@@ -4,28 +4,26 @@
   "private": true,
   "packageManager": "pnpm@10.28.1",
   "type": "module",
-
   "scripts": {
     "compose:up": "docker compose -f infra/docker-compose.yml up -d",
     "compose:down": "docker compose -f infra/docker-compose.yml down -v",
-
     "db:migrate": "prisma migrate dev --name init",
     "db:generate": "prisma generate",
     "db:smoke": "tsx packages/db/src/smoke.ts"
   },
-
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "eslint": "^9.39.2",
+    "prettier": "^3.8.0",
     "prisma": "7.2.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "eslint": "^9.39.2",
-    "prettier": "^3.8.0"
+    "typescript": "^5.9.3"
   },
-
   "dependencies": {
-    "@prisma/client": "7.2.0",
     "@prisma/adapter-pg": "^7.2.0",
-    "pg": "^8.13.1",
-    "dotenv": "^16.4.5"
+    "@prisma/client": "7.2.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1"
   }
 }

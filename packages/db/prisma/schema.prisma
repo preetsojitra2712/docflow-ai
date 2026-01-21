@@ -6,6 +6,37 @@ datasource db {
   provider = "postgresql"
 }
 
+model RefreshToken {
+  id           String         @id @default(cuid())
+  userId       String
+  tokenHash    String         @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdAt    DateTime       @default(now())
+  createdByIp  String?
+  userAgent    String?
+  replacedBy   RefreshToken?  @relation("RefreshTokenRotation", fields: [replacedById], references: [id])
+  replaces     RefreshToken[] @relation("RefreshTokenRotation")
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  passwordHash  String?
+  documents     Document[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  isAdmin Boolean @default(false)
+}
+
 model Document {
   id        String   @id @default(cuid())
   filename  String
@@ -14,4 +45,26 @@ model Document {
   objectKey String   @unique
   size      Int?
   createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String?
+  entityId   String?
+  ip         String?
+  userAgent  String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
