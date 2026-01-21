@@ -7,3 +7,7 @@ dist
 node_modules/
 dist/
 .DS_Store
+*.bak
+cookies.txt
+login.json
+curl.exe
