@@ -1,107 +1,99 @@
-DocFlow AI
+# DocFlow AI
 
-DocFlow AI is an early-stage backend system for document upload, storage, and secure retrieval.
+DocFlow AI is an early-stage backend system for document upload, storage, and secure retrieval.  
 This project focuses on building a production-quality backend foundation before adding advanced features such as search, background processing, and AI-powered document understanding.
 
 The repository reflects active development and incremental progress toward a scalable document platform.
 
-Project Status
+---
+
+## Project Status
 
 🚧 Actively under development
 
-This repository currently represents the backend core of the system.
+This repository currently represents the backend core of the system.  
 The goal at this stage is correctness, security, and clean architecture rather than a finished user product.
 
-What is implemented so far
+---
+
+## What Is Implemented So Far
 
 The system currently supports:
 
-User login with secure session handling
-
-Uploading documents through an API
-
-Storing files in object storage (S3-compatible)
-
-Storing document metadata in a relational database
-
-Listing documents owned by a user
-
-Downloading documents via secure, time-limited URLs
-
-Deleting documents
-
-Admin-only audit logs showing system activity
-
-Fully dockerized local development setup
+- User login with secure session handling
+- Uploading documents through an API
+- Storing files in object storage (S3-compatible)
+- Storing document metadata in a relational database
+- Listing documents owned by a user
+- Downloading documents via secure, time-limited URLs
+- Deleting documents
+- Admin-only audit logs showing system activity
+- Fully dockerized local development setup
 
 All critical actions such as login, upload, download, and delete are recorded for traceability.
 
-Tech Stack
-Backend
+---
 
-Node.js
+## Tech Stack
 
-Fastify
+### Backend
+- Node.js
+- Fastify
+- TypeScript
 
-TypeScript
+### Database
+- PostgreSQL
+- Prisma ORM with migrations
 
-Database
+### Object Storage
+- MinIO (S3-compatible)
 
-PostgreSQL
+### Infrastructure and Tooling
+- Docker and Docker Compose
+- pnpm workspaces (monorepo)
+- WSL (Ubuntu) for development
+- curl and PowerShell for API testing
 
-Prisma ORM with migrations
+---
 
-Object Storage
+## High-Level Architecture
 
-MinIO (S3-compatible)
-
-Infrastructure and Tooling
-
-Docker and Docker Compose
-
-pnpm workspaces (monorepo)
-
-WSL (Ubuntu) for development
-
-curl and PowerShell for API testing
-
-High-Level Architecture
-
-Clients authenticate and interact with a Fastify API.
-
-Uploaded files are stored in MinIO object storage.
-
-Metadata is stored in PostgreSQL using Prisma.
-
-Files are downloaded using secure presigned URLs.
-
-All services run locally via Docker in development.
+- Clients authenticate and interact with a Fastify API
+- Uploaded files are stored in MinIO object storage
+- Metadata is stored in PostgreSQL using Prisma
+- Files are downloaded using secure presigned URLs
+- All services run locally via Docker in development
 
 This mirrors common production architectures used in real backend systems.
 
-Monorepo Structure
+---
+
+## Monorepo Structure
+
 docflow-ai/
 ├── apps/
-│   └── api/                # Fastify API service
+│ └── api/ # Fastify API service
 ├── packages/
-│   └── db/                 # Prisma schema, migrations, DB utilities
-├── infra/                  # Infrastructure related files
-├── scripts/                # Local utility scripts
-├── docker-compose.yml      # Postgres and MinIO
+│ └── db/ # Prisma schema, migrations, DB utilities
+├── infra/ # Infrastructure related files
+├── scripts/ # Local utility scripts
+├── docker-compose.yml # Postgres and MinIO
 ├── prisma.config.ts
 ├── pnpm-workspace.yaml
 └── README.md
 
-Local Development Setup
-Requirements
 
-Node.js 20+
+---
 
-pnpm
+## Local Development Setup
 
-Docker
+### Requirements
+- Node.js 20+
+- pnpm
+- Docker
 
-Setup
+### Setup
+
 pnpm install
 cp .env.example .env
 docker compose up -d
@@ -111,11 +103,18 @@ pnpm --filter @docflow/api dev
 
 The API will be available at:
 
+
+
 http://localhost:4000
 
-Environment Variables
 
-Example .env configuration:
+---
+
+## Environment Variables
+
+Example `.env` configuration:
+
+
 
 DATABASE_URL=postgresql://docflow:docflow@localhost:5432/docflow
 
@@ -131,80 +130,103 @@ COOKIE_SECRET=dev-cookie-secret-change-me
 
 API_PORT=4000
 
-API Endpoints
-Health Check
+
+---
+
+## API Endpoints
+
+### Health Check
+
+
 GET /health
 
-Upload Document
+
+### Upload Document
+
+
 POST /upload
 
 
 Multipart form field name:
 
+
 file
 
-List Documents
+
+### List Documents
+
+
 GET /documents
 
 
 Returns only documents owned by the authenticated user.
 
-Get Document Metadata
+### Get Document Metadata
+
+
 GET /documents/:id
 
-Download Document
+
+### Download Document
+
+
 GET /documents/:id/download
 
 
 Returns a presigned MinIO URL valid for a limited time.
 
-Admin Audit Logs
+### Admin Audit Logs
+
+
 GET /admin/audit
 
 
 Admin-only endpoint that returns recent system activity such as logins and document operations.
 
-Example Upload (PowerShell)
-curl.exe -X POST "http://localhost:4000/upload" `
-  -H "Authorization: Bearer <ACCESS_TOKEN>" `
-  -F "file=@C:\path\to\file.pdf"
+---
 
-Design Philosophy
+## Example Upload (PowerShell)
 
-Start with a strong backend core
 
-Use production-grade tools from day one
 
-Keep infrastructure reproducible locally
+curl.exe -X POST "http://localhost:4000/upload
+" -H "Authorization: Bearer <ACCESS_TOKEN>"
+-F "file=@C:\path\to\file.pdf"
 
-Build incrementally with clear ownership boundaries
 
-Optimize for scalability and extensibility
+---
 
-Planned Next Steps
+## Design Philosophy
 
-Password reset and email verification
+- Start with a strong backend core
+- Use production-grade tools from day one
+- Keep infrastructure reproducible locally
+- Build incrementally with clear ownership boundaries
+- Optimize for scalability and extensibility
 
-Refresh token reuse detection
+---
 
-Per-user rate limiting
+## Planned Next Steps
 
-Background processing (queues or workers)
+- Password reset and email verification
+- Refresh token reuse detection
+- Per-user rate limiting
+- Background processing (queues or workers)
+- Document text extraction and indexing
+- Search and AI-powered workflows
+- Frontend UI for uploads and browsing
+- Production deployment configuration
 
-Document text extraction and indexing
+---
 
-Search and AI-powered workflows
+## Disclaimer
 
-Frontend UI for uploads and browsing
-
-Production deployment configuration
-
-Disclaimer
-
-This repository reflects early-stage development.
+This repository reflects early-stage development.  
 Breaking changes are expected as the system evolves.
 
-Author
+---
 
-Preet Sojitra
+## Author
+
+Preet Sojitra  
 Backend, Systems, and AI-focused Engineer
