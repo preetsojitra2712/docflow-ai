@@ -11,3 +11,10 @@ dist/
 cookies.txt
 login.json
 curl.exe
+# accidental temp files
+=cmk*
+*.tmp
+*.log
+jar.txt
+login.json
+test.txt
