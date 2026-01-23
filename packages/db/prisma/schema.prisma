@@ -19,6 +19,11 @@ model RefreshToken {
   replacedBy   RefreshToken?  @relation("RefreshTokenRotation", fields: [replacedById], references: [id])
   replaces     RefreshToken[] @relation("RefreshTokenRotation")
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdIp         String?
+  createdUserAgent  String?
+  lastUsedAt        DateTime?
+  lastUsedIp        String?
+  lastUsedUserAgent String?
 
   @@index([userId])
   @@index([expiresAt])
@@ -37,19 +42,33 @@ model User {
   isAdmin Boolean @default(false)
 }
 
+enum DocumentStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
 model Document {
-  id        String   @id @default(cuid())
-  filename  String
-  mimeType  String?
-  bucket    String
-  objectKey String   @unique
-  size      Int?
-  createdAt DateTime @default(now())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id          String         @id @default(cuid())
+  filename    String
+  mimeType    String?
+  bucket      String
+  objectKey   String         @unique
+  size        Int?
+  createdAt   DateTime       @default(now())
+
+  userId      String
+  user        User           @relation(fields: [userId], references: [id])
+
+  status      DocumentStatus @default(PENDING)
+  processedAt DateTime?
+  error       String?
 
   @@index([userId])
 }
+
+
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String?

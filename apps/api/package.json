@@ -17,6 +17,7 @@
     "@fastify/rate-limit": "^9.1.0",
     "@prisma/adapter-pg": "7.2.0",
     "@prisma/client": "7.2.0",
+    "@temporalio/client": "^1.14.1",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "minio": "^8.0.6",

@@ -1,8 +1,9 @@
+// apps/api/src/index.ts
 import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
-
+import { Connection, Client } from "@temporalio/client";
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import multipart from "@fastify/multipart";
@@ -30,6 +31,8 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? "15m";
 const ALLOW_DEV_LOGIN = String(process.env.ALLOW_DEV_LOGIN ?? "true").toLowerCase() === "true";
 
 const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? "30");
+const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS ?? "localhost:7233";
+const TEMPORAL_TASK_QUEUE = process.env.TEMPORAL_TASK_QUEUE ?? "docflow";
 
 const COOKIE_SECRET = process.env.COOKIE_SECRET ?? "dev-cookie-secret-change-me";
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE ?? "false").toLowerCase() === "true";
@@ -64,20 +67,31 @@ function getRefreshFromCookie(req: any): string | undefined {
   return typeof res.value === "string" ? res.value : undefined;
 }
 
+// Revoke all active refresh tokens for a user (force logout everywhere)
+async function revokeAllRefreshTokensForUser(app: any, userId: string) {
+  await app.prisma.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
 async function issueTokens(app: any, reply: any, req: any, user: { id: string; email: string }) {
-  const accessToken = await reply.jwtSign(
-    { sub: user.id, email: user.email },
-    { expiresIn: JWT_EXPIRES_IN }
-  );
+  const accessToken = await reply.jwtSign({ sub: user.id, email: user.email }, { expiresIn: JWT_EXPIRES_IN });
 
   const rawRefresh = newRefreshToken();
   const refreshHash = hashRefreshToken(rawRefresh);
 
+  // Create refresh token row with session metadata
   await app.prisma.refreshToken.create({
     data: {
       userId: user.id,
       tokenHash: refreshHash,
       expiresAt: refreshExpiresAt(),
+      createdIp: req.ip,
+      createdUserAgent: req.headers["user-agent"] ?? null,
+      lastUsedAt: new Date(),
+      lastUsedIp: req.ip,
+      lastUsedUserAgent: req.headers["user-agent"] ?? null,
     },
   });
 
@@ -107,7 +121,11 @@ const logoutBodySchema = z.object({
 
 async function main() {
   const app = Fastify({ logger: true });
+  
+
   app.decorate("prisma", prisma);
+  const temporalConnection = await Connection.connect({ address: TEMPORAL_ADDRESS });
+  const temporal = new Client({ connection: temporalConnection });
 
   await app.register(rateLimit, { max: 200, timeWindow: "1 minute" });
 
@@ -139,20 +157,19 @@ async function main() {
       return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
     }
   }
-  
+
   async function requireAdmin(req: any, reply: any) {
-  await requireAuth(req, reply);
-  const userId = req.user?.sub as string | undefined;
-  if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
+    await requireAuth(req, reply);
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
 
-  const u = await app.prisma.user.findUnique({
-    where: { id: userId },
-    select: { isAdmin: true },
-  });
+    const u = await app.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true },
+    });
 
-  if (!u?.isAdmin) return reply.code(403).send({ ok: false, error: "FORBIDDEN" });
-}
-
+    if (!u?.isAdmin) return reply.code(403).send({ ok: false, error: "FORBIDDEN" });
+  }
 
   // Health
   app.get("/health", async (_req, reply) => {
@@ -273,18 +290,57 @@ async function main() {
       include: { user: true },
     });
 
-    if (!row) return reply.code(401).send({ ok: false, error: "INVALID_REFRESH_TOKEN" });
-    if (row.revokedAt) return reply.code(401).send({ ok: false, error: "REFRESH_TOKEN_REVOKED" });
-    if (row.expiresAt.getTime() <= Date.now()) return reply.code(401).send({ ok: false, error: "REFRESH_TOKEN_EXPIRED" });
+    if (!row) {
+      clearRefreshCookie(reply);
+      return reply.code(401).send({ ok: false, error: "INVALID_REFRESH_TOKEN" });
+    }
+
+    // Reuse detection
+    if (row.revokedAt) {
+      await revokeAllRefreshTokensForUser(app, row.userId);
+      clearRefreshCookie(reply);
+
+      await writeAudit(app, req, {
+        action: "auth.refresh.reuse_detected",
+        userId: row.userId,
+        meta: {
+          userId: row.userId,
+          reason: "refresh token reused after rotation/revocation",
+        },
+      });
+
+      return reply.code(401).send({ ok: false, error: "REFRESH_TOKEN_REUSE_DETECTED" });
+    }
+
+    if (row.expiresAt.getTime() <= Date.now()) {
+      clearRefreshCookie(reply);
+      return reply.code(401).send({ ok: false, error: "REFRESH_TOKEN_EXPIRED" });
+    }
+
+    // Mark last used on the current refresh token
+    await app.prisma.refreshToken.update({
+      where: { id: row.id },
+      data: {
+        lastUsedAt: new Date(),
+        lastUsedIp: req.ip,
+        lastUsedUserAgent: req.headers["user-agent"] ?? null,
+      },
+    });
 
     const newRaw = newRefreshToken();
     const newHash = hashRefreshToken(newRaw);
 
+    // Create rotated refresh token row with metadata
     const newRow = await app.prisma.refreshToken.create({
       data: {
         userId: row.userId,
         tokenHash: newHash,
         expiresAt: refreshExpiresAt(),
+        createdIp: req.ip,
+        createdUserAgent: req.headers["user-agent"] ?? null,
+        lastUsedAt: new Date(),
+        lastUsedIp: req.ip,
+        lastUsedUserAgent: req.headers["user-agent"] ?? null,
       },
       select: { id: true },
     });
@@ -296,10 +352,7 @@ async function main() {
 
     setRefreshCookie(reply, newRaw);
 
-    const accessToken = await reply.jwtSign(
-      { sub: row.user.id, email: row.user.email },
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    const accessToken = await reply.jwtSign({ sub: row.user.id, email: row.user.email }, { expiresIn: JWT_EXPIRES_IN });
 
     await writeAudit(app, req, {
       action: "auth.refresh",
@@ -341,35 +394,142 @@ async function main() {
     return reply.send({ ok: true });
   });
 
-    app.get("/admin/audit", { preHandler: requireAdmin }, async (req: any, reply) => {
-  const q = z
-    .object({
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-    })
-    .parse(req.query);
+  // Sessions: list active sessions (protected) + mark current session
+  app.get("/auth/sessions", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
 
-  const rows = await app.prisma.auditLog.findMany({
-    orderBy: { createdAt: "desc" },
-    take: q.limit,
-    select: {
-      id: true,
-      action: true,
-      entityType: true,
-      entityId: true,
-      ip: true,
-      userAgent: true,
-      meta: true,
-      createdAt: true,
-      userId: true,
-    },
+    const currentRaw = getRefreshFromCookie(req);
+    const currentHash = currentRaw ? hashRefreshToken(currentRaw) : null;
+
+    const rows = await app.prisma.refreshToken.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        tokenHash: true,
+        createdAt: true,
+        expiresAt: true,
+        createdIp: true,
+        createdUserAgent: true,
+        lastUsedAt: true,
+        lastUsedIp: true,
+        lastUsedUserAgent: true,
+      },
+    });
+
+    const sessions = rows.map((s) => ({
+      id: s.id,
+      createdAt: s.createdAt,
+      expiresAt: s.expiresAt,
+      createdIp: s.createdIp,
+      createdUserAgent: s.createdUserAgent,
+      lastUsedAt: s.lastUsedAt,
+      lastUsedIp: s.lastUsedIp,
+      lastUsedUserAgent: s.lastUsedUserAgent,
+      isCurrent: currentHash ? s.tokenHash === currentHash : false,
+    }));
+
+    return reply.send({ ok: true, sessions });
   });
 
-  return reply.send({ ok: true, audit: rows });
-});
+  // Sessions: revoke one session (protected)
+  app.delete("/auth/sessions/:id", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
 
+    const id = req.params.id as string;
+    const currentRaw = getRefreshFromCookie(req);
+const currentHash = currentRaw ? hashRefreshToken(currentRaw) : null;
 
+if (currentHash) {
+  const current = await app.prisma.refreshToken.findUnique({
+    where: { tokenHash: currentHash },
+    select: { id: true },
+  });
 
-  // Upload (protected) aligned to Document schema
+  if (current?.id === id) {
+    return reply.code(400).send({ ok: false, error: "CANNOT_REVOKE_CURRENT_SESSION" });
+  }
+}
+
+    const row = await app.prisma.refreshToken.findFirst({
+      where: { id, userId },
+      select: { id: true, revokedAt: true },
+    });
+
+    if (!row) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+
+    if (!row.revokedAt) {
+      await app.prisma.refreshToken.update({
+        where: { id },
+        data: { revokedAt: new Date() },
+      });
+    }
+
+    await writeAudit(app, req, {
+      action: "auth.session.revoke",
+      userId,
+      meta: { refreshTokenId: id },
+    });
+
+    return reply.send({ ok: true });
+  });
+
+  // Sessions: revoke all other sessions except current (protected)
+  app.delete("/auth/sessions", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
+
+    const currentRaw = getRefreshFromCookie(req);
+    const currentHash = currentRaw ? hashRefreshToken(currentRaw) : null;
+
+    const res = await app.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(currentHash ? { tokenHash: { not: currentHash } } : {}),
+      },
+      data: { revokedAt: new Date() },
+    });
+
+    await writeAudit(app, req, {
+      action: "auth.session.revoke_all_others",
+      userId,
+      meta: { revokedCount: res.count },
+    });
+
+    return reply.send({ ok: true, revoked: res.count });
+  });
+
+  // Admin audit
+  app.get("/admin/audit", { preHandler: requireAdmin }, async (req: any, reply) => {
+    const q = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+      })
+      .parse(req.query);
+
+    const rows = await app.prisma.auditLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take: q.limit,
+      select: {
+        id: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        ip: true,
+        userAgent: true,
+        meta: true,
+        createdAt: true,
+        userId: true,
+      },
+    });
+
+    return reply.send({ ok: true, audit: rows });
+  });
+
+  // Upload (protected)
   app.post("/upload", { preHandler: requireAuth }, async (req: any, reply) => {
     const userId = req.user?.sub as string | undefined;
     if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
@@ -402,10 +562,21 @@ async function main() {
         objectKey: true,
         size: true,
         createdAt: true,
+        status: true,
+        processedAt: true,
+        error: true,
       },
+      
     });
 
     await putObject(doc.objectKey, buf, mimeType ?? undefined);
+
+    await temporal.workflow.start("ingestDocument", {
+      taskQueue: TEMPORAL_TASK_QUEUE,
+      workflowId: `doc-ingest-${doc.id}`,
+      args: [doc.id],
+    });
+    
 
     await writeAudit(app, req, {
       action: "document.upload",
@@ -471,7 +642,25 @@ async function main() {
     return reply.send({ ok: true, document: doc });
   });
 
-  // Download (protected) - presigned URL using objectKey
+  // Document status (protected)
+app.get("/documents/:id/status", { preHandler: requireAuth }, async (req: any, reply) => {
+  const userId = req.user?.sub as string | undefined;
+  if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
+
+  const id = req.params.id as string;
+
+  const doc = await app.prisma.document.findFirst({
+    where: { id, userId },
+    select: { id: true, status: true, processedAt: true, error: true },
+  });
+
+  if (!doc) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+
+  return reply.send({ ok: true, status: doc });
+});
+
+
+  // Download (protected)
   app.get("/documents/:id/download", { preHandler: requireAuth }, async (req: any, reply) => {
     const userId = req.user?.sub as string | undefined;
     if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
@@ -496,7 +685,7 @@ async function main() {
     return reply.send({ ok: true, url });
   });
 
-  // Delete (protected) - remove MinIO object by objectKey
+  // Delete (protected)
   app.delete("/documents/:id", { preHandler: requireAuth }, async (req: any, reply) => {
     const userId = req.user?.sub as string | undefined;
     if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });

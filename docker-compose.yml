@@ -9,22 +9,52 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - docflow_pg:/var/lib/postgresql/data
+      - docflow_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
     container_name: docflow-minio
-    command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
       - docflow_minio:/data
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: docflow-temporal
+    depends_on:
+      - postgres
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: docflow
+      POSTGRES_PWD: docflow
+      POSTGRES_DB: docflow
+      POSTGRES_SEEDS: docflow-postgres
+    ports:
+      - "7233:7233"
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.30.0
+    container_name: docflow-temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8081:8080"
+      
+    restart: unless-stopped
 
 volumes:
-  docflow_pg:
+  docflow_pgdata:
   docflow_minio:
-
