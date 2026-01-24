@@ -39,7 +39,8 @@ model User {
   documents     Document[]
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
-  isAdmin Boolean @default(false)
+  tasks         Task[]
+  isAdmin       Boolean        @default(false)
 }
 
 enum DocumentStatus {
@@ -47,6 +48,20 @@ enum DocumentStatus {
   PROCESSING
   DONE
   FAILED
+}
+
+enum DocRoute {
+  FINANCE
+  HR
+  LEGAL
+  SUPPORT
+  OTHER
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELED
 }
 
 model Document {
@@ -57,6 +72,7 @@ model Document {
   objectKey   String         @unique
   size        Int?
   createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   userId      String
   user        User           @relation(fields: [userId], references: [id])
@@ -65,9 +81,36 @@ model Document {
   processedAt DateTime?
   error       String?
 
+  extracted   Json?
+  decision    Json?
+  route       DocRoute?
+
+  task        Task?
+
   @@index([userId])
+  @@index([status])
+  @@index([route])
 }
 
+model Task {
+  id          String     @id @default(cuid())
+  documentId  String     @unique
+  userId      String?
+  category    DocRoute
+  reason      String
+  confidence  Float
+  status      TaskStatus @default(OPEN)
+  meta        Json?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  document    Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
+}
 
 model AuditLog {
   id         String   @id @default(cuid())

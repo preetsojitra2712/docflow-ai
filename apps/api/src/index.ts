@@ -121,9 +121,9 @@ const logoutBodySchema = z.object({
 
 async function main() {
   const app = Fastify({ logger: true });
-  
 
   app.decorate("prisma", prisma);
+
   const temporalConnection = await Connection.connect({ address: TEMPORAL_ADDRESS });
   const temporal = new Client({ connection: temporalConnection });
 
@@ -440,18 +440,18 @@ async function main() {
 
     const id = req.params.id as string;
     const currentRaw = getRefreshFromCookie(req);
-const currentHash = currentRaw ? hashRefreshToken(currentRaw) : null;
+    const currentHash = currentRaw ? hashRefreshToken(currentRaw) : null;
 
-if (currentHash) {
-  const current = await app.prisma.refreshToken.findUnique({
-    where: { tokenHash: currentHash },
-    select: { id: true },
-  });
+    if (currentHash) {
+      const current = await app.prisma.refreshToken.findUnique({
+        where: { tokenHash: currentHash },
+        select: { id: true },
+      });
 
-  if (current?.id === id) {
-    return reply.code(400).send({ ok: false, error: "CANNOT_REVOKE_CURRENT_SESSION" });
-  }
-}
+      if (current?.id === id) {
+        return reply.code(400).send({ ok: false, error: "CANNOT_REVOKE_CURRENT_SESSION" });
+      }
+    }
 
     const row = await app.prisma.refreshToken.findFirst({
       where: { id, userId },
@@ -566,7 +566,6 @@ if (currentHash) {
         processedAt: true,
         error: true,
       },
-      
     });
 
     await putObject(doc.objectKey, buf, mimeType ?? undefined);
@@ -576,7 +575,6 @@ if (currentHash) {
       workflowId: `doc-ingest-${doc.id}`,
       args: [doc.id],
     });
-    
 
     await writeAudit(app, req, {
       action: "document.upload",
@@ -643,22 +641,172 @@ if (currentHash) {
   });
 
   // Document status (protected)
-app.get("/documents/:id/status", { preHandler: requireAuth }, async (req: any, reply) => {
-  const userId = req.user?.sub as string | undefined;
-  if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
+  app.get("/documents/:id/status", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
 
-  const id = req.params.id as string;
+    const id = req.params.id as string;
 
-  const doc = await app.prisma.document.findFirst({
-    where: { id, userId },
-    select: { id: true, status: true, processedAt: true, error: true },
+    const doc = await app.prisma.document.findFirst({
+      where: { id, userId },
+      select: { id: true, status: true, processedAt: true, error: true },
+    });
+
+    if (!doc) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+
+    return reply.send({ ok: true, status: doc });
   });
 
-  if (!doc) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+  // Agentic result: extracted + decision + route + task (protected)
+  app.get("/documents/:id/result", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
 
-  return reply.send({ ok: true, status: doc });
-});
+    const id = req.params.id as string;
 
+    const doc = await app.prisma.document.findFirst({
+      where: { id, userId },
+      select: {
+        id: true,
+        filename: true,
+        mimeType: true,
+        createdAt: true,
+        status: true,
+        processedAt: true,
+        error: true,
+        route: true,
+        extracted: true,
+        decision: true,
+      },
+    });
+
+    if (!doc) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+
+    const task = await app.prisma.task.findUnique({
+      where: { documentId: id },
+      select: {
+        id: true,
+        documentId: true,
+        category: true,
+        confidence: true,
+        reason: true,
+        status: true,
+        meta: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    await writeAudit(app, req, {
+      action: "document.result.read",
+      userId,
+      entityType: "Document",
+      entityId: id,
+    });
+
+    return reply.send({ ok: true, document: doc, task });
+  });
+
+  // Task details (protected)
+  app.get("/documents/:id/task", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
+
+    const id = req.params.id as string;
+
+    const doc = await app.prisma.document.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
+
+    if (!doc) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+
+    const task = await app.prisma.task.findUnique({
+      where: { documentId: id },
+      select: {
+        id: true,
+        documentId: true,
+        category: true,
+        confidence: true,
+        reason: true,
+        status: true,
+        meta: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!task) return reply.code(404).send({ ok: false, error: "NO_TASK" });
+
+    await writeAudit(app, req, {
+      action: "task.read",
+      userId,
+      entityType: "Task",
+      entityId: task.id,
+      meta: { documentId: id },
+    });
+
+    return reply.send({ ok: true, task });
+  });
+
+  // Audit for a document: returns logs for Document id and its Task id (protected)
+  app.get("/documents/:id/audit", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
+
+    const id = req.params.id as string;
+
+    const q = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+      })
+      .parse(req.query);
+
+    const doc = await app.prisma.document.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
+
+    if (!doc) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+
+    const task = await app.prisma.task.findUnique({
+      where: { documentId: id },
+      select: { id: true },
+    });
+
+    const entityIds = task?.id ? [id, task.id] : [id];
+
+    const rows = await app.prisma.auditLog.findMany({
+      where: {
+        OR: [
+          { entityId: { in: entityIds } },
+          { entityType: "Document", entityId: id },
+          ...(task?.id ? [{ entityType: "Task", entityId: task.id }] : []),
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: q.limit,
+      select: {
+        id: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        meta: true,
+        createdAt: true,
+        userId: true,
+      },
+    });
+
+    await writeAudit(app, req, {
+      action: "document.audit.read",
+      userId,
+      entityType: "Document",
+      entityId: id,
+      meta: { limit: q.limit, taskId: task?.id ?? null },
+    });
+
+    return reply.send({ ok: true, audit: rows });
+  });
 
   // Download (protected)
   app.get("/documents/:id/download", { preHandler: requireAuth }, async (req: any, reply) => {
