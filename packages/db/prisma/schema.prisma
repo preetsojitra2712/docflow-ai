@@ -7,23 +7,23 @@ datasource db {
 }
 
 model RefreshToken {
-  id           String         @id @default(cuid())
-  userId       String
-  tokenHash    String         @unique
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  replacedById String?
-  createdAt    DateTime       @default(now())
-  createdByIp  String?
-  userAgent    String?
-  replacedBy   RefreshToken?  @relation("RefreshTokenRotation", fields: [replacedById], references: [id])
-  replaces     RefreshToken[] @relation("RefreshTokenRotation")
-  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String         @id @default(cuid())
+  userId            String
+  tokenHash         String         @unique
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedById      String?
+  createdAt         DateTime       @default(now())
+  createdByIp       String?
+  userAgent         String?
   createdIp         String?
   createdUserAgent  String?
   lastUsedAt        DateTime?
   lastUsedIp        String?
   lastUsedUserAgent String?
+  replacedBy        RefreshToken?  @relation("RefreshTokenRotation", fields: [replacedById], references: [id])
+  replaces          RefreshToken[] @relation("RefreshTokenRotation")
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -36,11 +36,72 @@ model User {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   passwordHash  String?
+  isAdmin       Boolean        @default(false)
+  auditLogs     AuditLog[]
   documents     Document[]
   refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
   tasks         Task[]
-  isAdmin       Boolean        @default(false)
+}
+
+model Document {
+  id          String         @id @default(cuid())
+  filename    String
+  mimeType    String?
+  bucket      String
+  objectKey   String         @unique
+  size        Int?
+  createdAt   DateTime       @default(now())
+  userId      String
+  error       String?
+  processedAt DateTime?
+  status      DocumentStatus @default(PENDING)
+  updatedAt   DateTime       @updatedAt
+  decision    Json?
+  extracted   Json?
+  route       DocRoute?
+  user        User           @relation(fields: [userId], references: [id])
+  task        Task?
+
+  @@index([userId])
+  @@index([status])
+  @@index([route])
+}
+
+model Task {
+  id         String     @id @default(cuid())
+  documentId String     @unique
+  userId     String?
+  category   DocRoute
+  reason     String
+  confidence Float
+  status     TaskStatus @default(OPEN)
+  meta       Json?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  document   Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id])
+
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String?
+  entityId   String?
+  ip         String?
+  userAgent  String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
 
 enum DocumentStatus {
@@ -62,71 +123,4 @@ enum TaskStatus {
   OPEN
   DONE
   CANCELED
-}
-
-model Document {
-  id          String         @id @default(cuid())
-  filename    String
-  mimeType    String?
-  bucket      String
-  objectKey   String         @unique
-  size        Int?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  userId      String
-  user        User           @relation(fields: [userId], references: [id])
-
-  status      DocumentStatus @default(PENDING)
-  processedAt DateTime?
-  error       String?
-
-  extracted   Json?
-  decision    Json?
-  route       DocRoute?
-
-  task        Task?
-
-  @@index([userId])
-  @@index([status])
-  @@index([route])
-}
-
-model Task {
-  id          String     @id @default(cuid())
-  documentId  String     @unique
-  userId      String?
-  category    DocRoute
-  reason      String
-  confidence  Float
-  status      TaskStatus @default(OPEN)
-  meta        Json?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  document    Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([category])
-  @@index([status])
-  @@index([createdAt])
-}
-
-model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  action     String
-  entityType String?
-  entityId   String?
-  ip         String?
-  userAgent  String?
-  meta       Json?
-  createdAt  DateTime @default(now())
-
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
-  @@index([action])
-  @@index([entityType, entityId])
-  @@index([createdAt])
 }
