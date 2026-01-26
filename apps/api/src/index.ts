@@ -150,13 +150,14 @@ async function main() {
     },
   });
 
-  async function requireAuth(req: any, reply: any) {
-    try {
-      await req.jwtVerify();
-    } catch {
-      return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
-    }
+async function requireAuth(req: any, reply: any) {
+  try {
+    await req.jwtVerify();
+  } catch (e: any) {
+    req.log.error({ err: e }, "jwtVerify failed");
+    return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
   }
+}
 
   async function requireAdmin(req: any, reply: any) {
     await requireAuth(req, reply);
@@ -657,6 +658,57 @@ async function main() {
     return reply.send({ ok: true, status: doc });
   });
 
+  // Retry FAILED doc (protected)
+  app.post("/documents/:id/retry", { preHandler: requireAuth }, async (req: any, reply) => {
+    const userId = req.user?.sub as string | undefined;
+    if (!userId) return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
+
+    const id = req.params.id as string;
+
+    const doc = await app.prisma.document.findFirst({
+      where: { id, userId },
+      select: { id: true, status: true, filename: true, mimeType: true },
+    });
+
+    if (!doc) return reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+    if (doc.status !== "FAILED") return reply.code(400).send({ ok: false, error: "NOT_FAILED" });
+
+    // Reset document fields
+    await app.prisma.document.update({
+      where: { id },
+      data: {
+        status: "PENDING",
+        processedAt: null,
+        error: null,
+        route: null,
+        extracted: null,
+        decision: null,
+      },
+    });
+
+    // Delete existing task (if any)
+    await app.prisma.task.deleteMany({ where: { documentId: id } });
+
+    // Start a fresh workflow run (new workflowId)
+    const workflowId = `doc-ingest-${id}-${Date.now()}`;
+    await temporal.workflow.start("ingestDocument", {
+      taskQueue: TEMPORAL_TASK_QUEUE,
+      workflowId,
+      args: [id],
+    });
+
+    // Audit retry
+    await writeAudit(app, req, {
+      action: "document.retry",
+      userId,
+      entityType: "Document",
+      entityId: id,
+      meta: { workflowId },
+    });
+
+    return reply.send({ ok: true, workflowId });
+  });
+
   // Agentic result: extracted + decision + route + task (protected)
   app.get("/documents/:id/result", { preHandler: requireAuth }, async (req: any, reply) => {
     const userId = req.user?.sub as string | undefined;
@@ -859,6 +911,7 @@ async function main() {
 
     return reply.send({ ok: true });
   });
+  console.log(app.printRoutes());
 
   await app.listen({ port: PORT, host: "0.0.0.0" });
 }

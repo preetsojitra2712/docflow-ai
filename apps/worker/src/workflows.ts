@@ -1,3 +1,4 @@
+// apps/worker/src/workflows.ts
 import { proxyActivities } from "@temporalio/workflow";
 
 type Activities = {
@@ -8,7 +9,13 @@ type Activities = {
 };
 
 const { markProcessing, markDone, markFailed, agenticMvpProcess } = proxyActivities<Activities>({
-  startToCloseTimeout: "5 minutes",
+  startToCloseTimeout: "2 minutes",
+  retry: {
+    maximumAttempts: 5,
+    initialInterval: "1s",
+    maximumInterval: "10s",
+    backoffCoefficient: 2,
+  },
 });
 
 export async function ingestDocument(docId: string): Promise<void> {
